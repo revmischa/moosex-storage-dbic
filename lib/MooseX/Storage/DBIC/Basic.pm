@@ -69,26 +69,25 @@ around _storage_construct_instance => sub  {
 
     # recursively clean up relationship construction args
     my $clean_args; $clean_args = sub {
-        my ($a, $_fields) = @_;
+        my ($a, $_fields, $dest) = @_;
 
+        croak "dest must be a hashref" unless $dest && ref($dest) eq 'HASH';
+
+        # should we traverse array too?
         return $a unless ref($a) && reftype($a) eq 'HASH';
 
         # is arg a DBIC row? find resultset
         my $arg_rsname = $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
         my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
 
-        # you go away too
-        delete $a->{$MooseX::Storage::Engine::CLASS_MARKER};
-
         my $ret = {};
-        my %fields = %$_fields;
-        while (my ($k, $v) = each %fields) {
+        while (my ($k, $v) = each %a) {
             #warn "rsname=$arg_rsname, k: $k, v: $v";
             if ($arg_rsname) {
                 # we only want to pass columns to new_result()
                 if ($rs->result_source->columns_info->{$k}) {
                     #warn "ref(a->{$k}) = " . (ref($a->{$k}));
-                    if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
+                    if (ref($v) && ref($) eq 'HASH') {
                         my $dbic_class = $class->packed_storage_type($a->{$k});
                         my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
 
@@ -134,13 +133,18 @@ around _storage_construct_instance => sub  {
         return $ret;
     };
 
-    $fields = $clean_args->($args, $args);
+    # recursively deserialize $args into %ctor_args
+    my %ctor_args;
+    $fields = $clean_args->($args, $args, \%ctor_args);
     #ddx($fields);
     #ddx($args);
 
-    my $result;
-    my %ctor_args = ( %$args, %i );
+    # add injected constructor args
+    %ctor_args = ( %ctor_args, %i );
+
+    # construct result
     #ddx(\%ctor_args);
+    my $result;
     if ($rsname) {
         # construct DBIC instance
         $result = $class->schema->resultset($rsname)->new_result(\%ctor_args);

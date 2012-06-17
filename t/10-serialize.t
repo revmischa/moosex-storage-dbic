@@ -106,7 +106,8 @@ sub run_tests {
     my @rs2s = $schema->resultset('RS2')->all;
 
     # test serialization of first rs1 row, which is related to rs2
-    {
+    use Devel::LeakGuard::Object qw/ leakguard /;
+    leakguard {
         my $rs1 = shift @rs1s; # first rows
         my $rs2 = shift @rs2s;
         $rs1->attr('quux');
@@ -135,7 +136,7 @@ sub run_tests {
         $packed = $to_pack->pack;
         $unpacked = MXSD::NonResult->unpack($packed);
         is($unpacked->{myrow}->id, $rs2->id, "Deserialized row inside non-DBIC packed object");
-    }
+    };
 
     # test serializing different set of rows
     {
