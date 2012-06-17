@@ -15,7 +15,7 @@ BEGIN {
     if ($@) {
         plan skip_all => 'DBD::SQLite not installed';
     } else {
-        plan tests => 12;
+        plan tests => 13;
     }
     use_ok( 'MooseX::Storage::DBIC' );
 }
@@ -68,9 +68,19 @@ has 'attr' => ( is => 'rw', isa => 'Str', default => 'default2' );
 1;
 
 
+package MXSD::NonResult;
+use Moose;
+
+with 'MooseX::Storage::DBIC';
+sub schema { $schema }
+__PACKAGE__->serializable(qw/ myrow /);
+1;
+
 ###
 
 package main;
+
+use Scalar::Util qw/blessed/;
 
 run_tests();
 
@@ -105,7 +115,10 @@ sub run_tests {
         $rs1->rs2->{rs1id} = $rs1->id;
 
         my $packed = $rs1->pack;
+
+        # do it again to make sure cyclic checking is reset
         $rs1->pack;
+
         my $unpacked = MXSD::RS1->unpack($packed);
 
         # got expected results from deserialization?
@@ -115,6 +128,13 @@ sub run_tests {
         is($unpacked->rs2->id, $rs2->id, "Deserialized rel column");
         is($unpacked->{foo}, 456, "Deserialized field");
         is_deeply($unpacked->rs2->{baz}, $rs1->rs2->{baz}, "Deserialized rel field");
+
+        # try nesting a row inside a plain ol' hashref
+        my $to_pack = MXSD::NonResult->new;
+        $to_pack->{myrow} = $rs2;
+        $packed = $to_pack->pack;
+        $unpacked = MXSD::NonResult->unpack($packed);
+        ok(blessed($unpacked->{myrow}), "Deserialized row inside non-DBIC packed object");
     }
 
     # test serializing different set of rows

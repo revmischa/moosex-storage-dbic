@@ -60,119 +60,128 @@ around _storage_construct_instance => sub  {
     my ($orig, $class, $args, $opts) = @_;
     my %i = defined $opts->{'inject'} ? %{ $opts->{'inject'} } : ();
 
-    # DBIC objects would like hashrefs
-    if ($class->isa_dbic($class)) {
-        my $rsname = $args->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER} or
-            die "trying to reconstruct dbic object that was not properly serialized with the resultset name";
+    # fields to directly populate
+    my $fields = {};
 
-        # fields to directly populate
-        my $fields = {};
+    my $rsname = $class->packed_storage_type($args);
 
-        # recursively clean up relationship construction args
-        my $clean_args; $clean_args = sub {
-            my ($a, $_fields) = @_;
+    # recursively clean up relationship construction args
+    my $clean_args; $clean_args = sub {
+        my ($a, $_fields) = @_;
 
-            return $a unless ref($a) && reftype($a) eq 'HASH';
+        return $a unless ref($a) && reftype($a) eq 'HASH';
 
-            # is arg a DBIC row? find resultset
-            my $arg_rsname = delete $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
-            my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
+        # is arg a DBIC row? find resultset
+        my $arg_rsname = delete $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
+        my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
 
-            # you go away too
-            delete $a->{$MooseX::Storage::Engine::CLASS_MARKER};
+        # you go away too
+        delete $a->{$MooseX::Storage::Engine::CLASS_MARKER};
 
-            my $ret = {};
-            my %fields = %$_fields;
-            while (my ($k, $v) = each %fields) {
-                #warn "rsname=$arg_rsname, k: $k, v: $v";
-                if ($arg_rsname) {
-                    # we only want to pass columns to new_result()
-                    if ($rs->result_source->columns_info->{$k}) {
-                        #warn "ref(a->{$k}) = " . (ref($a->{$k}));
-                        if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
-                            my $dbic_class = $class->packed_storage_type($a->{$k});
-                            my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
-
-                            if ($dbic_class) {
-                                # it appears we have discovered a relationship!
-                                # if we don't bless $cleaned, DBIC will try looking the rel up itself
-                                $a->{$k} = bless($cleaned, $dbic_class);
-                            } else {
-                                $ret->{$k} = $cleaned;
-                            }
-                        } else {
-                            #warn "not ref $v";
-                            #delete $ret->{$k};
-                        }
-                    } else {
-                        # want to save this for setting later
-                        #warn "a->{$k} = $a->{$k}";
-                        my $dbic_class = $class->packed_storage_type($v);
+        my $ret = {};
+        my %fields = %$_fields;
+        while (my ($k, $v) = each %fields) {
+            #warn "rsname=$arg_rsname, k: $k, v: $v";
+            if ($arg_rsname) {
+                # we only want to pass columns to new_result()
+                if ($rs->result_source->columns_info->{$k}) {
+                    #warn "ref(a->{$k}) = " . (ref($a->{$k}));
+                    if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
+                        my $dbic_class = $class->packed_storage_type($a->{$k});
+                        my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
+                        warn "class: $dbic_class";
                         if ($dbic_class) {
-                            # got dbic object hashref
-                            $ret->{$k} = $v;
+                            # it appears we have discovered a relationship!
+                            # if we don't bless $cleaned, DBIC will try looking the rel up itself
+                            $a->{$k} = bless($cleaned, $dbic_class);
                         } else {
-                            $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
+                            $ret->{$k} = $cleaned;
                         }
-                        delete $a->{$k};
-                    }
-                } else {
-                    $ret->{$k} = $clean_args->($v, $_fields->{$k});
-                }
-            }
-            return $ret;
-        };
-
-        $fields = $clean_args->($args, $args);
-        #ddx($fields);
-        #ddx($args);
-
-        my $result = $class->schema->resultset($rsname)->new_result({
-            %$args,
-            %i,
-        });
-
-        # directly set fields on our hashref recursively
-        my $set_fields; $set_fields = sub {
-            my ($hashref, $_fields) = @_;
-
-            return unless $_fields;
-
-            while (my ($k, $v) = each %$_fields) {
-                my $has_accessor = blessed($hashref) && $hashref->can($k);
-                my $set = sub {
-                    if ($has_accessor) {
-                        # call setter
-                        $hashref->$k($v);
                     } else {
-                        # set field directly
-                        $hashref->{$k} = $v;
+                        #warn "not ref $v";
+                        #delete $ret->{$k};
                     }
-                };
-
-                my $dbic_class = $class->packed_storage_type($v);
-                if ($dbic_class && refaddr($v) != refaddr($result)) {
-                    # got a dbic row as a field
-                    $v = $dbic_class->unpack($v);
-                    $set->();
-                    next;
-                }
-
-                if (ref($v) && reftype($v) eq 'HASH') {
-                    my $hv = $has_accessor ? $hashref->$k : $hashref->{$k};
-                    $set_fields->($hv || $v, $v);
-                    $hashref->{$k} = $v;
                 } else {
-                    $set->();
+                    # want to save this for setting later
+                    #warn "a->{$k} = $a->{$k}";
+                    my $dbic_class = $class->packed_storage_type($v);
+                    if ($dbic_class) {
+                        # got dbic object hashref
+                        #warn "got dbic object hashref for $k";
+                        $ret->{$k} = $v;
+                    } else {
+                        $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
+                    }
+                    delete $a->{$k};
+                }
+            } else {
+                my $dbic_class = $class->packed_storage_type($v);
+                my $cleaned = $clean_args->($v, $_fields->{$k});
+
+                if ($dbic_class) {
+                    # got a free-floating DBIC row packed inside
+                    # something that is not a DBIC row
+                    $ret->{$k} = $dbic_class->unpack($cleaned);
+                } else {
+                    $ret->{$k} = $cleaned;
                 }
             }
-        };
-        $set_fields->($result, $fields);
+        }
+        return $ret;
+    };
 
-        return $result;
+    $fields = $clean_args->($args, $args);
+    #ddx($fields);
+    #ddx($args);
+
+    my $result;
+    my %ctor_args = ( %$args, %i );
+    if ($rsname) {
+        # construct DBIC instance
+        $result = $class->schema->resultset($rsname)->new_result(\%ctor_args);
+    } else {
+        # construct normal moose instance
+        $result = $class->new(%ctor_args);
     }
 
-    return $class->new( %$args, %i );
+    # directly set fields on our hashref recursively
+    my $set_fields; $set_fields = sub {
+        my ($hashref, $_fields) = @_;
+
+        return unless $_fields;
+
+        while (my ($k, $v) = each %$_fields) {
+            my $has_accessor = blessed($hashref) && $hashref->can($k);
+            my $set = sub {
+                if ($has_accessor) {
+                    # call setter
+                    $hashref->$k($v);
+                } else {
+                    # set field directly
+                    $hashref->{$k} = $v;
+                }
+            };
+
+            my $dbic_class = $class->packed_storage_type($v);
+            if ($dbic_class && refaddr($v) != refaddr($result)) {
+                # got a dbic row as a field
+                $v = $dbic_class->unpack($v);
+                $set->();
+                next;
+            }
+
+            if (ref($v) && reftype($v) eq 'HASH') {
+                my $hv = $has_accessor ? $hashref->$k : $hashref->{$k};
+                $set_fields->($hv || $v, $v);
+                $hashref->{$k} = $v;
+            } else {
+                $set->();
+            }
+        }
+    };
+    $set_fields->($result, $fields);
+
+    return $result;
 };
 
 1;

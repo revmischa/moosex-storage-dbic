@@ -123,7 +123,7 @@ override collapse_attribute_value => sub {
         return unless defined $v;
 
         # have we already visited this relationship?
-        if (blessed($v) && $v->isa('DBIx::Class::Core')) {
+        if ($obj->can('result_source') && blessed($v) && $v->isa('DBIx::Class::Core')) {
             $attr->{_mxsd_engine} ||= $self;
             my $info = $obj->result_source->relationship_info($name);
             #warn "name: $name attr: " . refaddr($attr) . " self: " . refaddr($self) . " value: " . refaddr($info);
