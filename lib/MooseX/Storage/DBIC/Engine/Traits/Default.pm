@@ -176,7 +176,7 @@ override collapse_attribute_value => sub {
             }
         }
     }
-    
+
     return $value;
 };
 

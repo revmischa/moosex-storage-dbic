@@ -43,6 +43,15 @@ our $VERSION = '0.01';
  # convert hashref back into instance
  my $orig_row = My::Schema::Result::Chair->unpack($serialized);
 
+=head1 WARNINGS
+
+WARNING: This software is highly experimental and untested. Do not
+rely on it for anything important. Bug reports and pull requests
+welcome.
+
+Please also note that you cannot serialize cyclic references or cyclic
+relationships.
+
 =cut
 
 sub BUILDARGS { $_[2] || {} }
