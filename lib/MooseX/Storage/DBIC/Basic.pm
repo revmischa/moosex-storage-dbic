@@ -90,7 +90,6 @@ around _storage_construct_instance => sub  {
                     if ($rs->result_source->columns_info->{$k}) {
                         #warn "ref(a->{$k}) = " . (ref($a->{$k}));
                         if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
-                            warn "$k is a ref";
                             $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
                         } else {
                             #warn "not ref $v";

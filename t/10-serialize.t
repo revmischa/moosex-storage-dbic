@@ -30,7 +30,6 @@ use Moose;
 use MooseX::NonMoose;
 use MooseX::MarkAsMethods autoclean => 1;
 extends 'DBIx::Class::Core';
-use DBIx::Class::MooseColumns;
 __PACKAGE__->load_components("InflateColumn::DateTime");
 __PACKAGE__->table("rs1");
 __PACKAGE__->add_columns(
@@ -53,7 +52,6 @@ use Moose;
 use MooseX::NonMoose;
 use MooseX::MarkAsMethods autoclean => 1;
 extends 'DBIx::Class::Core';
-use DBIx::Class::MooseColumns;
 __PACKAGE__->table("rs2");
 __PACKAGE__->add_columns(
   "id" => { data_type => "integer" },

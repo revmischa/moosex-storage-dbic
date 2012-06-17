@@ -6,8 +6,7 @@ use MooseX::Storage::DBIC::Basic;
 
 =head1 NAME
 
-MooseX::Storage::DBIC - Additional MooseX::Storage functionality for
-DBIx::Class rows and data structures.
+MooseX::Storage::DBIC - Additional MooseX::Storage functionality for DBIx::Class rows and data structures.
 
 =cut
 
