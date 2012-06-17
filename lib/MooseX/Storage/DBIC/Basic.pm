@@ -64,6 +64,8 @@ around _storage_construct_instance => sub  {
     my $fields = {};
 
     my $rsname = $class->packed_storage_type($args);
+    #ddx($args);
+    #warn "rename: $rsname";
 
     # recursively clean up relationship construction args
     my $clean_args; $clean_args = sub {
@@ -72,7 +74,7 @@ around _storage_construct_instance => sub  {
         return $a unless ref($a) && reftype($a) eq 'HASH';
 
         # is arg a DBIC row? find resultset
-        my $arg_rsname = delete $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
+        my $arg_rsname = $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
         my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
 
         # you go away too
@@ -89,7 +91,7 @@ around _storage_construct_instance => sub  {
                     if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
                         my $dbic_class = $class->packed_storage_type($a->{$k});
                         my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
-                        warn "class: $dbic_class";
+
                         if ($dbic_class) {
                             # it appears we have discovered a relationship!
                             # if we don't bless $cleaned, DBIC will try looking the rel up itself
@@ -136,6 +138,7 @@ around _storage_construct_instance => sub  {
 
     my $result;
     my %ctor_args = ( %$args, %i );
+    #ddx(\%ctor_args);
     if ($rsname) {
         # construct DBIC instance
         $result = $class->schema->resultset($rsname)->new_result(\%ctor_args);
