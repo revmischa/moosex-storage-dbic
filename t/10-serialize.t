@@ -6,6 +6,8 @@ use warnings;
 use FindBin;
 use lib "$FindBin::RealBin/../lib";
 use Data::Dump qw/ddx/;
+use Devel::LeakGuard::Object qw/leakguard/;
+use Test::Memory::Cycle;
 
 BEGIN {
     # can we use fake dbic schema?
@@ -105,37 +107,12 @@ sub run_tests {
     my @rs1s = $schema->resultset('RS1')->all;
     my @rs2s = $schema->resultset('RS2')->all;
 
-    # test serialization of first rs1 row, which is related to rs2
-    use Devel::LeakGuard::Object qw/ leakguard /;
     leakguard {
-        my $rs1 = shift @rs1s; # first rows
-        my $rs2 = shift @rs2s;
-        $rs1->attr('quux');
-        $rs1->{foo} = 456;
-        $rs1->rs2->{baz} = { a => [ 1, 2, 3, 4 ] };
-        $rs1->rs2->{rs1id} = $rs1->id;
-
-        my $packed = $rs1->pack;
-
-        # do it again to make sure cyclic checking is reset
-        $rs1->pack;
-
-        my $unpacked = MXSD::RS1->unpack($packed);
-
-        # got expected results from deserialization?
-        is($unpacked->attr, $rs1->attr, "Deserialized attribute");
-        is($unpacked->id, $rs1->id, "Deserialized column");
-        is($unpacked->rs2->rs1id, $rs2->rs1id, "Deserialized rel column");
-        is($unpacked->rs2->id, $rs2->id, "Deserialized rel column");
-        is($unpacked->{foo}, 456, "Deserialized field");
-        is_deeply($unpacked->rs2->{baz}, $rs1->rs2->{baz}, "Deserialized rel field");
-
-        # try nesting a row inside a plain ol' hashref
-        my $to_pack = MXSD::NonResult->new;
-        $to_pack->{myrow} = $rs2;
-        $packed = $to_pack->pack;
-        $unpacked = MXSD::NonResult->unpack($packed);
-        is($unpacked->{myrow}->id, $rs2->id, "Deserialized row inside non-DBIC packed object");
+        {
+            my $rs1 = shift @rs1s; # first rows
+            my $rs2 = shift @rs2s;
+            test_serialize_rels($rs1, $rs2);
+        }
     };
 
     # test serializing different set of rows
@@ -161,5 +138,41 @@ sub run_tests {
     }
 }
 
+sub test_serialize_rels {
+    my ($rs1, $rs2) = @_;
 
+    # test serialization of first rs1 row, which is related to rs2
+    $rs1->attr('quux');
+    $rs1->{foo} = 456;
+    $rs1->rs2->{baz} = { a => [ 1, 2, 3, 4 ] };
+    $rs1->rs2->{rs1id} = $rs1->id;
 
+    my $packed = $rs1->pack;
+
+    # do it again to make sure cyclic checking is reset
+    $rs1->pack;
+
+    my $unpacked = MXSD::RS1->unpack($packed);
+
+    # got expected results from deserialization?
+    is($unpacked->attr, $rs1->attr, "Deserialized attribute");
+    is($unpacked->id, $rs1->id, "Deserialized column");
+    is($unpacked->rs2->rs1id, $rs2->rs1id, "Deserialized rel column");
+    is($unpacked->rs2->id, $rs2->id, "Deserialized rel column");
+    is($unpacked->{foo}, 456, "Deserialized field");
+    is_deeply($unpacked->rs2->{baz}, $rs1->rs2->{baz}, "Deserialized rel field");
+
+    memory_cycle_ok($packed, "Serialized object does not contain circular refs");
+    memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
+    
+    # try nesting a row inside a plain ol' hashref
+    my $to_pack = MXSD::NonResult->new;
+    $to_pack->{myrow} = $rs2;
+    $packed = $to_pack->pack;
+    $unpacked = MXSD::NonResult->unpack($packed);
+    memory_cycle_ok($unpacked, "Deserialized freestanding DBIC row object does not contain circular refs");
+    is($unpacked->{myrow}->id, $rs2->id, "Deserialized row inside non-DBIC packed object");
+
+    memory_cycle_ok($packed, "Serialized object does not contain circular refs");
+    memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
+}

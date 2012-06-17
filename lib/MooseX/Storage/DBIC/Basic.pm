@@ -7,6 +7,7 @@ with 'MooseX::Storage::Basic';
 use MooseX::Storage::DBIC::Engine::Traits::Default;
 use Data::Dump qw/ddx pp/;
 use Scalar::Util qw/reftype refaddr blessed/;
+use Carp qw/croak/;
 
 requires 'schema';
 
@@ -69,39 +70,53 @@ around _storage_construct_instance => sub  {
 
     # recursively clean up relationship construction args
     my $clean_args; $clean_args = sub {
-        my ($a, $_fields, $dest) = @_;
-
-        croak "dest must be a hashref" unless $dest && ref($dest) eq 'HASH';
+        my ($a, $dest) = @_;
 
         # should we traverse array too?
         return $a unless ref($a) && reftype($a) eq 'HASH';
+
+        #croak "dest must be a hashref" unless $dest && ref($dest) eq 'HASH';
 
         # is arg a DBIC row? find resultset
         my $arg_rsname = $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
         my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
 
         my $ret = {};
-        while (my ($k, $v) = each %a) {
-            #warn "rsname=$arg_rsname, k: $k, v: $v";
+        while (my ($k, $v) = each %$a) {
+            next if $k eq $MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER;
+            #warn "$k=$v, rsname=$arg_rsname";
+
             if ($arg_rsname) {
                 # we only want to pass columns to new_result()
                 if ($rs->result_source->columns_info->{$k}) {
                     #warn "ref(a->{$k}) = " . (ref($a->{$k}));
-                    if (ref($v) && ref($) eq 'HASH') {
-                        my $dbic_class = $class->packed_storage_type($a->{$k});
-                        my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
+                    if (ref($v) && ref($v) eq 'HASH') {
+                        my $dbic_class = $class->packed_storage_type($v);
+
+                        $dest->{$k} ||= {};
+                        my $cleaned = $clean_args->($v, $dest->{$k});
 
                         if ($dbic_class) {
                             # it appears we have discovered a relationship!
                             # if we don't bless $cleaned, DBIC will try looking the rel up itself
                             #warn "blessing cleaned into $dbic_class";
-                            $a->{$k} = bless($cleaned, $dbic_class);
+                            #warn "not plain $k";
+                            $dest->{$k} = bless($cleaned, $dbic_class);
                         } else {
+                            # maybe shouldn't get here
+
+                            # plain field
+                            #warn "plain $k";
                             $ret->{$k} = $cleaned;
+                            delete $dest->{$k};
                         }
                     } else {
-                        #warn "not ref $v";
+                        # plain column value
+
+                        #warn "plain column value $k=$v";
                         #delete $ret->{$k};
+                        $dest->{$k} ||= {};
+                        $dest->{$k} = $v;
                     }
                 } else {
                     # want to save this for setting later
@@ -112,11 +127,12 @@ around _storage_construct_instance => sub  {
                         #warn "got dbic object hashref for $k";
                         $ret->{$k} = $v;
                     } else {
-                        $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
+                        #warn "cleaning $k";
+                        $ret->{$k} = $clean_args->($v);
                     }
-                    delete $a->{$k};
                 }
             } else {
+                # we are not inflating a DBIC object
                 my $dbic_class = $class->packed_storage_type($v);
 
                 if ($dbic_class) {
@@ -124,9 +140,12 @@ around _storage_construct_instance => sub  {
                     # something that is not a DBIC row
                     #warn "got free-floating row for $k";
                     #ddx($v);
-                    $ret->{$k} = $dbic_class->unpack($v);
+                    #warn "unpacking";
+                    $dest->{$k} = $dbic_class->unpack($v);
                 } else {
-                    $ret->{$k} = $clean_args->($v, $_fields->{$k});
+                    #warn "ret->{$k} = $v";
+                    $dest->{$k} ||= {};
+                    $ret->{$k} = $clean_args->($v, $dest->{$k});
                 }
             }
         }
@@ -135,9 +154,9 @@ around _storage_construct_instance => sub  {
 
     # recursively deserialize $args into %ctor_args
     my %ctor_args;
-    $fields = $clean_args->($args, $args, \%ctor_args);
+    $fields = $clean_args->($args, \%ctor_args);
     #ddx($fields);
-    #ddx($args);
+    #ddx(\%ctor_args);
 
     # add injected constructor args
     %ctor_args = ( %ctor_args, %i );
