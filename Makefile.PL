@@ -17,7 +17,7 @@ WriteMakefile(
         'Test::DBIC' => 0,
         'MooseX::Storage' => 0,
         'namespace::autoclean' => 0,
-        'Data::Dump' => 0,
+        'Data::Dump' => '1.21',
     },
     META_ADD => { resources => { repository => 'git://github.com/revmischa/moosex-storage-dbic.git' } },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
