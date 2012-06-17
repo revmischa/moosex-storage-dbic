@@ -134,7 +134,7 @@ sub run_tests {
         $to_pack->{myrow} = $rs2;
         $packed = $to_pack->pack;
         $unpacked = MXSD::NonResult->unpack($packed);
-        ok(blessed($unpacked->{myrow}), "Deserialized row inside non-DBIC packed object");
+        is($unpacked->{myrow}->id, $rs2->id, "Deserialized row inside non-DBIC packed object");
     }
 
     # test serializing different set of rows

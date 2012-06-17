@@ -95,6 +95,7 @@ around _storage_construct_instance => sub  {
                         if ($dbic_class) {
                             # it appears we have discovered a relationship!
                             # if we don't bless $cleaned, DBIC will try looking the rel up itself
+                            #warn "blessing cleaned into $dbic_class";
                             $a->{$k} = bless($cleaned, $dbic_class);
                         } else {
                             $ret->{$k} = $cleaned;
@@ -118,14 +119,15 @@ around _storage_construct_instance => sub  {
                 }
             } else {
                 my $dbic_class = $class->packed_storage_type($v);
-                my $cleaned = $clean_args->($v, $_fields->{$k});
 
                 if ($dbic_class) {
                     # got a free-floating DBIC row packed inside
                     # something that is not a DBIC row
-                    $ret->{$k} = $dbic_class->unpack($cleaned);
+                    #warn "got free-floating row for $k";
+                    #ddx($v);
+                    $ret->{$k} = $dbic_class->unpack($v);
                 } else {
-                    $ret->{$k} = $cleaned;
+                    $ret->{$k} = $clean_args->($v, $_fields->{$k});
                 }
             }
         }
