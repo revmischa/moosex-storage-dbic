@@ -8,7 +8,7 @@ package MooseX::Storage::DBIC::Engine::Traits::Default;
 
 use Moose::Role;
 use namespace::autoclean;
-use Scalar::Util qw/reftype blessed/;
+use Scalar::Util qw/reftype refaddr blessed/;
 use feature 'switch';
 use Data::Dump qw/ddx/;
 
@@ -92,6 +92,7 @@ override collapse_attribute_value => sub {
 
                 # are we expecting a scalar or array?
                 my $info = $obj->relationship_info($name);
+
                 if ($info->{attrs}{accessor} eq 'multi') {
                     # have many possible related rows
                     my @rows = $obj->can($name) ? $obj->$name : $rel_rs->all;
@@ -120,6 +121,14 @@ override collapse_attribute_value => sub {
     my $serialize_obj = sub {
         my $v = shift;
         return unless defined $v;
+
+        # have we already visited this relationship?
+        if (blessed($v) && $v->isa('DBIx::Class::Core')) {
+            $attr->{_mxsd_engine} ||= $self;
+            my $info = $obj->result_source->relationship_info($name);
+            #warn "name: $name attr: " . refaddr($attr) . " self: " . refaddr($self) . " value: " . refaddr($info);
+            $attr->{_mxsd_engine}->check_for_cycle_in_collapse($attr, $info) if $info;
+        }
 
         my $ret;
         if ($self->is_dbic_serializable($v)) {
@@ -167,7 +176,7 @@ override collapse_attribute_value => sub {
             }
         }
     }
-
+    
     return $value;
 };
 
