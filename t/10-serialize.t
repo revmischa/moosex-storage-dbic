@@ -105,6 +105,7 @@ sub run_tests {
         $rs1->rs2->{rs1id} = $rs1->id;
 
         my $packed = $rs1->pack;
+        $rs1->pack;
         my $unpacked = MXSD::RS1->unpack($packed);
 
         # got expected results from deserialization?

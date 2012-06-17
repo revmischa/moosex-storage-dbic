@@ -177,6 +177,9 @@ override collapse_attribute_value => sub {
         }
     }
 
+    # recursive checking finished
+    delete $attr->{_mxsd_engine};
+
     return $value;
 };
 
