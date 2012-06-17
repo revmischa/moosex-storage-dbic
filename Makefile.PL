@@ -14,6 +14,7 @@ WriteMakefile(
     PL_FILES            => {},
     PREREQ_PM => {
         'Test::More' => 0,
+        'Test::DBIC' => 0,
         'MooseX::Storage' => 0,
         'namespace::autoclean' => 0,
         'Data::Dump' => 0,

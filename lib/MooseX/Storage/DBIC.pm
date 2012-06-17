@@ -53,7 +53,8 @@ relationships.
 
 =cut
 
-sub BUILDARGS { $_[2] || {} }
+# wish this worked haha
+#sub BUILDARGS { $_[2] || {} }
 
 # make some fields serializable
 sub serializable {

@@ -90,7 +90,16 @@ around _storage_construct_instance => sub  {
                     if ($rs->result_source->columns_info->{$k}) {
                         #warn "ref(a->{$k}) = " . (ref($a->{$k}));
                         if (ref($a->{$k}) && ref($a->{$k}) eq 'HASH') {
-                            $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
+                            my $dbic_class = $class->packed_storage_type($a->{$k});
+                            my $cleaned = $clean_args->($a->{$k}, $_fields->{$k});
+
+                            if ($dbic_class) {
+                                # it appears we have discovered a relationship!
+                                # if we don't bless $cleaned, DBIC will try looking the rel up itself
+                                $a->{$k} = bless($cleaned, $dbic_class);
+                            } else {
+                                $ret->{$k} = $cleaned;
+                            }
                         } else {
                             #warn "not ref $v";
                             #delete $ret->{$k};
@@ -98,7 +107,9 @@ around _storage_construct_instance => sub  {
                     } else {
                         # want to save this for setting later
                         #warn "a->{$k} = $a->{$k}";
-                        if (ref($v) && reftype($v) eq 'HASH' && exists $v->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER}) {
+                        my $dbic_class = $class->packed_storage_type($v);
+                        if ($dbic_class) {
+                            # got dbic object hashref
                             $ret->{$k} = $v;
                         } else {
                             $ret->{$k} = $clean_args->($a->{$k}, $_fields->{$k});
@@ -114,6 +125,7 @@ around _storage_construct_instance => sub  {
 
         $fields = $clean_args->($args, $args);
         #ddx($fields);
+        #ddx($args);
 
         my $result = $class->schema->resultset($rsname)->new_result({
             %$args,
