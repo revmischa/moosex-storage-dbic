@@ -8,6 +8,7 @@ use lib "$FindBin::RealBin/../lib";
 use Data::Dump qw/ddx/;
 use Devel::LeakGuard::Object qw/leakguard/;
 use Test::Memory::Cycle;
+use Devel::Cycle;
 
 BEGIN {
     # can we use fake dbic schema?
@@ -112,6 +113,8 @@ sub run_tests {
             my $rs1 = shift @rs1s; # first rows
             my $rs2 = shift @rs2s;
             test_serialize_rels($rs1, $rs2);
+            find_cycle($rs1);
+            find_cycle($rs2);
         }
     };
 
@@ -133,6 +136,9 @@ sub run_tests {
         is($unpacked->{baz}->id, $rs1->id, "Deserialized row buried in hashref");
         is($unpacked->{baz}{foo}, $rs1->{foo}, "Deserialized field in row");
 
+        memory_cycle_ok($packed, "Serialized object does not contain circular refs");
+        memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
+
         # TODO: force default attributes to be set if they aren't lazily-loaded
         #is($unpacked->attr, $rs2->attr, "Got serialized default attr");
     }
@@ -147,12 +153,16 @@ sub test_serialize_rels {
     $rs1->rs2->{baz} = { a => [ 1, 2, 3, 4 ] };
     $rs1->rs2->{rs1id} = $rs1->id;
 
+    # serialize
     my $packed = $rs1->pack;
 
     # do it again to make sure cyclic checking is reset
     $rs1->pack;
 
+    # deserialize (twice for good measure)
+    MXSD::RS1->unpack($packed);
     my $unpacked = MXSD::RS1->unpack($packed);
+    find_cycle($unpacked->rs2);
 
     # got expected results from deserialization?
     is($unpacked->attr, $rs1->attr, "Deserialized attribute");
@@ -164,7 +174,7 @@ sub test_serialize_rels {
 
     memory_cycle_ok($packed, "Serialized object does not contain circular refs");
     memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
-    
+
     # try nesting a row inside a plain ol' hashref
     my $to_pack = MXSD::NonResult->new;
     $to_pack->{myrow} = $rs2;
@@ -175,4 +185,7 @@ sub test_serialize_rels {
 
     memory_cycle_ok($packed, "Serialized object does not contain circular refs");
     memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
+
+    $rs1 = undef;
+    $rs2 = undef;
 }

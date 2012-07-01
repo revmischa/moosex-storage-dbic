@@ -8,6 +8,7 @@ use MooseX::Storage::DBIC::Engine::Traits::Default;
 use Data::Dump qw/ddx pp/;
 use Scalar::Util qw/reftype refaddr blessed/;
 use Carp qw/croak/;
+use Devel::Cycle;
 
 requires 'schema';
 
@@ -54,7 +55,8 @@ around 'unpack' => sub {
     my ($orig, $self, $data, %opts) = @_;
 
     $self->add_mxstorage_dbic_engine_traits(\%opts);
-    return $self->$orig($data, %opts);
+    my $expanded = $self->$orig($data, %opts);
+    return $expanded;
 };
 
 around _storage_construct_instance => sub  {
@@ -68,18 +70,20 @@ around _storage_construct_instance => sub  {
     #ddx($args);
     #warn "rename: $rsname";
 
+    my $schema = $class->schema;
+
     # recursively clean up relationship construction args
     my $clean_args; $clean_args = sub {
         my ($a, $dest) = @_;
 
-        # should we traverse array too?
+        # TODO: handle array too
         return $a unless ref($a) && reftype($a) eq 'HASH';
 
         #croak "dest must be a hashref" unless $dest && ref($dest) eq 'HASH';
 
         # is arg a DBIC row? find resultset
         my $arg_rsname = $a->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
-        my $rs; $rs = $class->schema->resultset($arg_rsname) if $arg_rsname;
+        my $rs; $rs = $schema->resultset($arg_rsname) if $arg_rsname;
 
         my $ret = {};
         while (my ($k, $v) = each %$a) {
@@ -96,6 +100,7 @@ around _storage_construct_instance => sub  {
                         $dest->{$k} ||= {};
                         my $cleaned = $clean_args->($v, $dest->{$k});
 
+                        #warn "class: $dbic_class";
                         if ($dbic_class) {
                             # it appears we have discovered a relationship!
                             # if we don't bless $cleaned, DBIC will try looking the rel up itself
@@ -115,8 +120,8 @@ around _storage_construct_instance => sub  {
 
                         #warn "plain column value $k=$v";
                         #delete $ret->{$k};
-                        $dest->{$k} ||= {};
-                        $dest->{$k} = $v;
+                        $ret->{$k} ||= {};
+                        $ret->{$k} = $v;
                     }
                 } else {
                     # want to save this for setting later
@@ -140,15 +145,16 @@ around _storage_construct_instance => sub  {
                     # something that is not a DBIC row
                     #warn "got free-floating row for $k";
                     #ddx($v);
-                    #warn "unpacking";
-                    $dest->{$k} = $dbic_class->unpack($v);
+                    #warn "unpacking $k";
+                    $ret->{$k} = $dbic_class->unpack($v);
                 } else {
                     #warn "ret->{$k} = $v";
-                    $dest->{$k} ||= {};
+                    $ret->{$k} ||= {};
                     $ret->{$k} = $clean_args->($v, $dest->{$k});
                 }
             }
         }
+        find_cycle($ret);
         return $ret;
     };
 
@@ -166,7 +172,8 @@ around _storage_construct_instance => sub  {
     my $result;
     if ($rsname) {
         # construct DBIC instance
-        $result = $class->schema->resultset($rsname)->new_result(\%ctor_args);
+        my $dbic_ctor_args = \%ctor_args;
+        $result = $schema->resultset($rsname)->new($dbic_ctor_args);
     } else {
         # construct normal moose instance
         $result = $class->new(%ctor_args);
@@ -198,7 +205,9 @@ around _storage_construct_instance => sub  {
                 next;
             }
 
-            if (ref($v) && reftype($v) eq 'HASH') {
+            if (ref($v) && reftype($v) eq 'HASH' && ! blessed($v)) {
+                # plain hashref
+                # TODO: handle arrayref?
                 my $hv = $has_accessor ? $hashref->$k : $hashref->{$k};
                 $set_fields->($hv || $v, $v);
                 $hashref->{$k} = $v;
@@ -208,6 +217,10 @@ around _storage_construct_instance => sub  {
         }
     };
     $set_fields->($result, $fields);
+
+    #use Data::Dumper;
+    #$Data::Dumper::Maxdepth = 2;
+    #warn Dumper($result);
 
     return $result;
 };

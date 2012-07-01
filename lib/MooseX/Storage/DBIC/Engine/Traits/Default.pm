@@ -148,8 +148,6 @@ override collapse_attribute_value => sub {
             while (my ($k, $v) = each %$value) {
                 if ($self->is_dbic_serializable($v)) {
                     $value->{$k} = $v->pack;
-                } else {
-                    $value->{$k} = $v;
                 }
             }
         }
