@@ -191,12 +191,12 @@ around _storage_construct_instance => sub  {
         # construct normal moose instance
         $result = $class->new(%ctor_args);
     }
-    
+
     # ddx($fields);
     # ddx($result);
     my $merged = $class->merger->merge($result, $fields);
     $result = { %$result, %$merged };
-    $result = bless($result, $rsname) if $rsname;
+    $result = bless($result, $rsname || $class);
     # ddx($result);
     %$fields = ();
 
