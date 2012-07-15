@@ -198,7 +198,7 @@ around _storage_construct_instance => sub  {
     $result = { %$result, %$merged };
     $result = bless($result, $rsname) if $rsname;
     # ddx($result);
-    # %$fields = ();
+    %$fields = ();
 
     #use Data::Dumper;
     #$Data::Dumper::Maxdepth = 2;
