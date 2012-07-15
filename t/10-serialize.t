@@ -18,7 +18,7 @@ BEGIN {
     if ($@) {
         plan skip_all => 'DBD::SQLite not installed';
     } else {
-        plan tests => 13;
+        plan tests => 20;
     }
     use_ok( 'MooseX::Storage::DBIC' );
 }
