@@ -32,6 +32,7 @@ use base 'DBIx::Class';
 use Moose;
 use MooseX::NonMoose;
 use MooseX::MarkAsMethods autoclean => 1;
+use Carp qw/croak cluck carp/;
 extends 'DBIx::Class::Core';
 __PACKAGE__->load_components("InflateColumn::DateTime");
 __PACKAGE__->table("rs1");
@@ -46,6 +47,9 @@ __PACKAGE__->serializable(qw/ id rs2 foo attr /);
 
 has 'attr' => ( is => 'rw', isa => 'Str', default => 'default' );
 
+sub BUILD { $main::rs1_count++; carp " + build rs1" }
+sub DEMOLISH { $main::rs1_count--; carp " - demolish rs1" }
+
 1;
 
 # resultset #2
@@ -54,6 +58,7 @@ use base 'DBIx::Class';
 use Moose;
 use MooseX::NonMoose;
 use MooseX::MarkAsMethods autoclean => 1;
+use Carp qw/croak cluck carp/;
 extends 'DBIx::Class::Core';
 __PACKAGE__->table("rs2");
 __PACKAGE__->add_columns(
@@ -67,6 +72,9 @@ sub schema { $schema }
 __PACKAGE__->serializable(qw/ id rs1id baz bleh attr /);
 
 has 'attr' => ( is => 'rw', isa => 'Str', default => 'default2' );
+
+sub BUILD { $main::rs2_count++; carp " + build rs2" }
+sub DEMOLISH { $main::rs2_count--; carp " - demolish rs2" }
 
 1;
 
@@ -85,6 +93,8 @@ package main;
 
 use Scalar::Util qw/blessed/;
 
+my $rs1_count = 0;
+my $rs2_count = 0;
 run_tests();
 
 sub run_tests {
@@ -107,7 +117,9 @@ sub run_tests {
 
     my @rs1s = $schema->resultset('RS1')->all;
     my @rs2s = $schema->resultset('RS2')->all;
-
+    $rs1_count = 2;
+    $rs2_count = 2;
+    
     leakguard {
         {
             my $rs1 = shift @rs1s; # first rows
@@ -130,18 +142,24 @@ sub run_tests {
         $rs2->{not_serialized} = 123;
         my $packed = $rs2->pack;
         my $unpacked = MXSD::RS2->unpack($packed);
-        is($unpacked->{baz}->attr, $rs1->attr, "Got serialized rel attr");
+        is($unpacked->{baz} && $unpacked->{baz}->attr, $rs1->attr, "Got serialized rel attr");
         is($unpacked->{not_serialized}, undef, "Skipped non-serialized field");
         is_deeply($unpacked->{bleh}, $rs2->{bleh}, "Deserialized complex fields");
-        is($unpacked->{baz}->id, $rs1->id, "Deserialized row buried in hashref");
+        is($unpacked->{baz} && $unpacked->{baz}->id, $rs1->id, "Deserialized row buried in hashref");
         is($unpacked->{baz}{foo}, $rs1->{foo}, "Deserialized field in row");
 
         memory_cycle_ok($packed, "Serialized object does not contain circular refs");
         memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
-
+        is($rs1_count, 1, "No leaked DBIC objects");
+        is($rs2_count, 1, "No leaked DBIC objects");   
         # TODO: force default attributes to be set if they aren't lazily-loaded
         #is($unpacked->attr, $rs2->attr, "Got serialized default attr");
     }
+    
+    @rs1s = ();
+    @rs2s = ();
+    is($rs1_count, 0, "No leaked DBIC objects");
+    is($rs2_count, 0, "No leaked DBIC objects");
 }
 
 sub test_serialize_rels {
@@ -170,6 +188,7 @@ sub test_serialize_rels {
     is($unpacked->rs2->rs1id, $rs2->rs1id, "Deserialized rel column");
     is($unpacked->rs2->id, $rs2->id, "Deserialized rel column");
     is($unpacked->{foo}, 456, "Deserialized field");
+    # ddx($unpacked->rs2);
     is_deeply($unpacked->rs2->{baz}, $rs1->rs2->{baz}, "Deserialized rel field");
 
     memory_cycle_ok($packed, "Serialized object does not contain circular refs");
@@ -185,7 +204,4 @@ sub test_serialize_rels {
 
     memory_cycle_ok($packed, "Serialized object does not contain circular refs");
     memory_cycle_ok($unpacked, "Deserialized object does not contain circular refs");
-
-    $rs1 = undef;
-    $rs2 = undef;
 }

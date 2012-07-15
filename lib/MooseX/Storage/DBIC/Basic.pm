@@ -9,6 +9,8 @@ use Data::Dump qw/ddx pp/;
 use Scalar::Util qw/reftype refaddr blessed/;
 use Carp qw/croak/;
 use Devel::Cycle;
+use feature 'switch';
+use Hash::Merge qw/merge/;
 
 requires 'schema';
 
@@ -39,7 +41,7 @@ sub is_storage {
 *packed_storage_type = \&is_packed_storage;
 sub is_packed_storage {
     my ($class, $obj) = @_;
-
+    
     return $obj && ref($obj) && reftype($obj) eq 'HASH' &&
         $obj->{$MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER};
 }
@@ -68,7 +70,7 @@ around _storage_construct_instance => sub  {
 
     my $rsname = $class->packed_storage_type($args);
     #ddx($args);
-    #warn "rename: $rsname";
+    # warn "rsname: $rsname";
 
     my $schema = $class->schema;
 
@@ -88,12 +90,14 @@ around _storage_construct_instance => sub  {
         my $ret = {};
         while (my ($k, $v) = each %$a) {
             next if $k eq $MooseX::Storage::DBIC::Engine::Traits::Default::DBIC_MARKER;
-            #warn "$k=$v, rsname=$arg_rsname";
-
-            if ($arg_rsname) {
+            # warn "$k=$v, rsname=$arg_rsname, col_info: " . $rs->result_source->columns_info->{$k};
+ 
+            if ($rs) {
+                my $src = $rs->result_source;
+                
                 # we only want to pass columns to new_result()
-                if ($rs->result_source->columns_info->{$k}) {
-                    #warn "ref(a->{$k}) = " . (ref($a->{$k}));
+                if ($src->columns_info->{$k} || $src->has_relationship($k)) {
+                    # warn "ref(a->{$k}) = " . (ref($a->{$k}));
                     if (ref($v) && ref($v) eq 'HASH') {
                         my $dbic_class = $class->packed_storage_type($v);
 
@@ -104,14 +108,16 @@ around _storage_construct_instance => sub  {
                         if ($dbic_class) {
                             # it appears we have discovered a relationship!
                             # if we don't bless $cleaned, DBIC will try looking the rel up itself
-                            #warn "blessing cleaned into $dbic_class";
-                            #warn "not plain $k";
-                            $dest->{$k} = bless($cleaned, $dbic_class);
+                            # warn "blessing cleaned into $dbic_class";
+                            # warn "not plain $k";
+                            # ddx($cleaned);
+                            my $unpacked = $dbic_class->unpack($v);
+                            $dest->{$k} = $unpacked;
                         } else {
                             # maybe shouldn't get here
 
                             # plain field
-                            #warn "plain $k";
+                            warn "plain $k";
                             $ret->{$k} = $cleaned;
                             delete $dest->{$k};
                         }
@@ -120,19 +126,26 @@ around _storage_construct_instance => sub  {
 
                         #warn "plain column value $k=$v";
                         #delete $ret->{$k};
-                        $ret->{$k} ||= {};
-                        $ret->{$k} = $v;
+                        $dest->{$k} = $v;
                     }
                 } else {
                     # want to save this for setting later
                     #warn "a->{$k} = $a->{$k}";
                     my $dbic_class = $class->packed_storage_type($v);
                     if ($dbic_class) {
-                        # got dbic object hashref
-                        #warn "got dbic object hashref for $k";
-                        $ret->{$k} = $v;
+                        # this is a DBIC object in $k, but it's not a relationship.
+                        # it should not go in $dest (which will be DBIC ctor args)
+                        # but should be set in $fields.
+                        
+                        # warn "got dbic object hashref for $k";
+                        # warn "unpacked: " . $dbic_class->unpack($v);
+                        # 
+                        my $unpacked = $dbic_class->unpack($v);
+                        # warn "setting $k=$cleaned";
+                        # delete $dest->{$k};
+                        $ret->{$k} = $unpacked;
                     } else {
-                        #warn "cleaning $k";
+                        # warn "cleaning $k";
                         $ret->{$k} = $clean_args->($v);
                     }
                 }
@@ -143,7 +156,7 @@ around _storage_construct_instance => sub  {
                 if ($dbic_class) {
                     # got a free-floating DBIC row packed inside
                     # something that is not a DBIC row
-                    #warn "got free-floating row for $k";
+                    # warn "got free-floating row for $k";
                     #ddx($v);
                     #warn "unpacking $k";
                     $ret->{$k} = $dbic_class->unpack($v);
@@ -161,8 +174,8 @@ around _storage_construct_instance => sub  {
     # recursively deserialize $args into %ctor_args
     my %ctor_args;
     $fields = $clean_args->($args, \%ctor_args);
-    #ddx($fields);
-    #ddx(\%ctor_args);
+    # ddx($fields);
+    # ddx(\%ctor_args);
 
     # add injected constructor args
     %ctor_args = ( %ctor_args, %i );
@@ -178,45 +191,14 @@ around _storage_construct_instance => sub  {
         # construct normal moose instance
         $result = $class->new(%ctor_args);
     }
-
-    # directly set fields on our hashref recursively
-    my $set_fields; $set_fields = sub {
-        my ($hashref, $_fields) = @_;
-
-        return unless $_fields;
-
-        while (my ($k, $v) = each %$_fields) {
-            my $has_accessor = blessed($hashref) && $hashref->can($k);
-            my $set = sub {
-                if ($has_accessor) {
-                    # call setter
-                    $hashref->$k($v);
-                } else {
-                    # set field directly
-                    $hashref->{$k} = $v;
-                }
-            };
-
-            my $dbic_class = $class->packed_storage_type($v);
-            if ($dbic_class && refaddr($v) != refaddr($result)) {
-                # got a dbic row as a field
-                $v = $dbic_class->unpack($v);
-                $set->();
-                next;
-            }
-
-            if (ref($v) && reftype($v) eq 'HASH' && ! blessed($v)) {
-                # plain hashref
-                # TODO: handle arrayref?
-                my $hv = $has_accessor ? $hashref->$k : $hashref->{$k};
-                $set_fields->($hv || $v, $v);
-                $hashref->{$k} = $v;
-            } else {
-                $set->();
-            }
-        }
-    };
-    $set_fields->($result, $fields);
+    
+    # ddx($fields);
+    # ddx($result);
+    my $merged = $class->merger->merge($result, $fields);
+    $result = { %$result, %$merged };
+    $result = bless($result, $rsname) if $rsname;
+    # ddx($result);
+    # %$fields = ();
 
     #use Data::Dumper;
     #$Data::Dumper::Maxdepth = 2;
@@ -225,4 +207,77 @@ around _storage_construct_instance => sub  {
     return $result;
 };
 
+sub merger {
+    my ($class) = @_;
+    
+    my $merger = Hash::Merge->new;
+    $merger->set_behavior('RIGHT_PRECEDENT');
+    return $merger;
+}
+
+# sub dbic_hash_merge {
+#     my ($class, $merger, $a, $b) = @_;
+#     
+#     warn "a: $a, b: $b";
+# 
+#     unless ($a && ref($a) && reftype($a) eq 'HASH') {
+#         warn "skipping $a, b=$b";
+#         return $b;
+#     }
+#     
+#     unless ($b && ref($b) && reftype($b) eq 'HASH') {
+#         warn "skipping $b, a=$a";
+#         return $b;
+#     }
+#     
+#     my $dbic_class = $class->packed_storage_type($b);
+#     if ($dbic_class && refaddr($b) != refaddr($a)) {
+#         # got a dbic row as a field
+#         warn "unpacking $b as $dbic_class";
+#         $b = $dbic_class->unpack($b);
+#     }
+#     
+#     my $merged = $merger->_merge_hashes({ %$a }, $b);
+#     return $merged;
+# }
+
+# 
+# sub _set_fields {
+#     my ($class, $obj, $k, $v, $recurse_func) = @_;
+#     
+#     my $has_accessor = blessed($obj) && $obj->can($k);
+#     
+#     my $set = sub {
+#         if ($has_accessor) {
+#             # call setter
+#             $obj->$k($v);
+#         } else {
+#             # set field directly
+#             $obj->{$k} = $v;
+#         }
+#     };
+# 
+#     my $dbic_class = $class->packed_storage_type($v);
+#     if ($dbic_class && refaddr($v) != refaddr($result)) {
+#         # got a dbic row as a field
+#         $v = $dbic_class->unpack($v);
+#         $set->();
+#         next;
+#     }
+# 
+#     if (ref($v) && reftype($v) eq 'HASH' && ! blessed($v)) {
+#         # plain hashref
+#         # should
+#         $recurse_func->($obj, { %$v });
+#         #$hashref->{$k} = $v;
+#     } elsif (ref($v) && reftype($v) eq 'ARRAY' && ! blessed($v)) {
+#         # arrayref
+#         #$set_fields->($obj, [ @$v ]);
+#         $obj->{$k} = [ @$v ];
+#     } else {
+#         # TODO: handle arrayref?
+#         $set->();
+#     }
+# }
+# 
 1;
