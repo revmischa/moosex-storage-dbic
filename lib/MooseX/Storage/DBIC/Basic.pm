@@ -8,7 +8,7 @@ use MooseX::Storage::DBIC::Engine::Traits::Default;
 use Data::Dump qw/ddx pp/;
 use Scalar::Util qw/reftype refaddr blessed/;
 use Carp qw/croak/;
-use Devel::Cycle;
+#use Devel::Cycle;
 use feature 'switch';
 use Hash::Merge qw/merge/;
 
@@ -167,7 +167,7 @@ around _storage_construct_instance => sub  {
                 }
             }
         }
-        find_cycle($ret);
+        #find_cycle($ret);
         return $ret;
     };
 

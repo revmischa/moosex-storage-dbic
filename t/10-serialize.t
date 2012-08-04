@@ -6,9 +6,9 @@ use warnings;
 use FindBin;
 use lib "$FindBin::RealBin/../lib";
 use Data::Dump qw/ddx/;
-use Devel::LeakGuard::Object qw/leakguard/;
+#use Devel::LeakGuard::Object qw/leakguard/;
 use Test::Memory::Cycle;
-use Devel::Cycle;
+#use Devel::Cycle;
 
 BEGIN {
     # can we use fake dbic schema?
@@ -119,16 +119,12 @@ sub run_tests {
     my @rs2s = $schema->resultset('RS2')->all;
     $rs1_count = 2;
     $rs2_count = 2;
-    
-    leakguard {
-        {
-            my $rs1 = shift @rs1s; # first rows
-            my $rs2 = shift @rs2s;
-            test_serialize_rels($rs1, $rs2);
-            find_cycle($rs1);
-            find_cycle($rs2);
-        }
-    };
+
+    {
+        my $rs1 = shift @rs1s; # first rows
+        my $rs2 = shift @rs2s;
+        test_serialize_rels($rs1, $rs2);
+    }
 
     # test serializing different set of rows
     {
@@ -180,7 +176,7 @@ sub test_serialize_rels {
     # deserialize (twice for good measure)
     MXSD::RS1->unpack($packed);
     my $unpacked = MXSD::RS1->unpack($packed);
-    find_cycle($unpacked->rs2);
+    #find_cycle($unpacked->rs2);
 
     # got expected results from deserialization?
     is($unpacked->attr, $rs1->attr, "Deserialized attribute");
